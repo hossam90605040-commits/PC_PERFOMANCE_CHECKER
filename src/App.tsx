@@ -193,30 +193,18 @@ export default function App() {
     const fetchGameDetails = async () => {
       setIsGameDetailsLoading(true);
       try {
-  const res = await fetch(`https://api.rawg.io/api/games?key=454dc988e8f541819e5c1973f82380b6&search=${selectedGame.name}`);
-
-  const data = await res.json();
-
-  const game = data.results && data.results.length > 0 ? data.results[0] : null;
-
-  const rawReqs = game && game.platforms
-    ? (game.platforms.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
-        minimum: "No specific requirements found.",
-        recommended: "No specific requirements found."
-      })
-    : {
-        minimum: "No specific requirements found.",
-        recommended: "No specific requirements found."
-      };
-
-  setGameRequirements({
-    minimum: rawReqs.minimum.replace(/Minimum:|Minimum/gi, '').trim(),
-    recommended: rawReqs.recommended.replace(/Recommended:|Recommended/gi, '').trim()
-  });
-
-} catch (err) {
-  console.log(err);
-}
+        const res = await fetch(`/api/games/${selectedGame.id}`);
+        const data = await res.json();
+        const rawReqs = data.platforms?.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
+          minimum: "No specific requirements found.",
+          recommended: "No specific requirements found."
+        };
+        
+        // Set initial requirements immediately for speed
+        setGameRequirements({
+          minimum: rawReqs.minimum.replace(/Minimum:|Minimum/gi, '').trim(),
+          recommended: rawReqs.recommended.replace(/Recommended:|Recommended/gi, '').trim()
+        });
 
         // Use Gemini to get specific qualities/resolutions AND structured requirements for this game
         const apiKey = process.env.GEMINI_API_KEY;
@@ -1081,3 +1069,4 @@ function ProgressBar({ label, value, max }: { label: string, value: number, max:
     </div>
   );
 }
+
