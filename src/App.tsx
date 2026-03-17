@@ -193,7 +193,7 @@ export default function App() {
     const fetchGameDetails = async () => {
       setIsGameDetailsLoading(true);
       try {
-        const res = await fetch(`/api/games/${selectedGame.id}`);
+        const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=454dc988e8f541819e5c1973f82380b6`);
         const data = await res.json();
         const rawReqs = data.platforms?.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
           minimum: "No specific requirements found.",
@@ -207,7 +207,7 @@ export default function App() {
         });
 
         // Use Gemini to get specific qualities/resolutions AND structured requirements for this game
-        const apiKey = process.env.GEMINI_API_KEY;
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (apiKey) {
           const ai = new GoogleGenAI({ apiKey });
           const prompt = `
