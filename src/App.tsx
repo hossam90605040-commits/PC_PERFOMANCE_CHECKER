@@ -193,9 +193,14 @@ export default function App() {
     const fetchGameDetails = async () => {
       setIsGameDetailsLoading(true);
       try {
-        const res = await fetch(`/api/games/${selectedGame.id}`);
+        const res = await fetch(`https://api.rawg.io/api/games?key=454dc988e8f541819e5c1973f82380b6&search=${selectedGame.name}`);
         const data = await res.json();
-        const rawReqs = data.platforms?.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
+        const game = data.results[0];
+
+const rawReqs = game?.platforms?.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
+  minimum: "No specific requirements found.",
+  recommended: "No specific requirements found."
+};
           minimum: "No specific requirements found.",
           recommended: "No specific requirements found."
         };
