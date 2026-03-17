@@ -1,0 +1,5 @@
+{
+  "name": "PC Game Performance Checker",
+  "description": "Check if your PC can run any game. Analyze hardware performance against game requirements using benchmark scores.",
+  "requestFramePermissions": []
+}
