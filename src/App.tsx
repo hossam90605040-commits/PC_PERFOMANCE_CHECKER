@@ -205,57 +205,6 @@ export default function App() {
           minimum: rawReqs.minimum.replace(/Minimum:|Minimum/gi, '').trim(),
           recommended: rawReqs.recommended.replace(/Recommended:|Recommended/gi, '').trim()
         });
-
-        // Use Gemini to get specific qualities/resolutions AND structured requirements for this game
-            model: "gemini-3-flash-preview",
-            contents: prompt,
-            config: {
-              tools: [{ googleSearch: {} }],
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  qualities: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  resolutions: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  minStructured: {
-                    type: Type.OBJECT,
-                    properties: {
-                      cpu: { type: Type.STRING },
-                      gpu: { type: Type.STRING },
-                      ram: { type: Type.STRING },
-                      storage: { type: Type.STRING },
-                      os: { type: Type.STRING }
-                    }
-                  },
-                  recStructured: {
-                    type: Type.OBJECT,
-                    properties: {
-                      cpu: { type: Type.STRING },
-                      gpu: { type: Type.STRING },
-                      ram: { type: Type.STRING },
-                      storage: { type: Type.STRING },
-                      os: { type: Type.STRING }
-                    }
-                  },
-                  rawMin: { type: Type.STRING },
-                  rawRec: { type: Type.STRING }
-                },
-                required: ["qualities", "resolutions", "minStructured", "recStructured", "rawMin", "rawRec"]
-              }
-            }
-          });
-          const settings = JSON.parse(response.text);
-          if (settings.qualities?.length > 0) setAvailableQualities(settings.qualities);
-          if (settings.resolutions?.length > 0) setAvailableResolutions(settings.resolutions);
-          
-          setGameRequirements({
-            minimum: settings.rawMin,
-            recommended: settings.rawRec,
-            minStructured: settings.minStructured,
-            recStructured: settings.recStructured
-          });
-        }
-        setIsGameDetailsLoading(false);
       } catch (err) {
         console.error("Error fetching game details:", err);
       } finally {
