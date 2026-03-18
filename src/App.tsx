@@ -191,30 +191,28 @@ export default function App() {
     }
 
     const fetchGameDetails = async () => {
-      setIsGameDetailsLoading(true);
-      try {
-        const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=${import.meta.env.VITE_RAWG_API_KEY}`);
-        const data = await res.json();
-        const rawReqs = data.platforms?.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
-          minimum: "No specific requirements found.",
-          recommended: "No specific requirements found."
-        };
-        
-        // Set initial requirements immediately for speed
-        setGameRequirements({
-          minimum: rawReqs.minimum.replace(/Minimum:|Minimum/gi, '').trim(),
-          recommended: rawReqs.recommended.replace(/Recommended:|Recommended/gi, '').trim()
-        });
-      } catch (err) {
-        console.error("Error fetching game details:", err);
-      } finally {
-        setIsGameDetailsLoading(false);
-      }
+  setIsGameDetailsLoading(true);
+
+  try {
+    const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=${import.meta.env.VITE_RAWG_API_KEY}`);
+    const data = await res.json();
+
+    const rawReqs = data.platforms?.find(p => p.platform.slug === "pc")?.requirements_en || {
+      minimum: "No requirements",
+      recommended: "No requirements"
     };
 
-    fetchGameDetails();
-  }, [selectedGame]);
+    setGameRequirements({
+      minimum: rawReqs.minimum,
+      recommended: rawReqs.recommended
+    });
 
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setIsGameDetailsLoading(false);
+  }
+};
   // Autocomplete for Games
   useEffect(() => {
     const timer = setTimeout(async () => {
