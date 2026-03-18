@@ -120,7 +120,7 @@ const translations = {
 };
 
 export default function App() {
-  const [lang, setLang] = useState<'en' | 'ar'>('en');
+  const [lang, setLang] = useState<'en' | 'ar'>('ar');
   const t = translations[lang];
   
   const [gameSearch, setGameSearch] = useState('');
@@ -236,10 +236,11 @@ export default function App() {
         const recReq = rawReqs.recommended || "No specific recommended requirements found in RAWG database.";
 
         // Set initial requirements immediately for speed
-        setGameRequirements({
+        const initialReqs = {
           minimum: minReq.replace(/Minimum:|Minimum/gi, '').trim(),
           recommended: recReq.replace(/Recommended:|Recommended/gi, '').trim()
-        });
+        };
+        setGameRequirements(initialReqs);
 
         // Use Gemini to get specific qualities/resolutions AND structured requirements for this game
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
@@ -308,8 +309,8 @@ export default function App() {
             if (settings.resolutions?.length > 0) setAvailableResolutions(settings.resolutions);
             
             setGameRequirements({
-              minimum: settings.rawMin,
-              recommended: settings.rawRec,
+              minimum: settings.rawMin || initialReqs.minimum,
+              recommended: settings.rawRec || initialReqs.recommended,
               minStructured: settings.minStructured,
               recStructured: settings.recStructured
             });
@@ -321,7 +322,8 @@ export default function App() {
                 errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("RESOURCE_EXHAUSTED")) {
               console.warn("Gemini Quota Exceeded. Using raw requirements from RAWG.");
             }
-            // We still have the raw requirements from RAWG, so we don't need to do anything else
+            // Ensure we keep the raw requirements if Gemini fails
+            setGameRequirements(initialReqs);
           }
         } else {
           console.warn("Gemini API Key missing, skipping structured requirements.");
@@ -329,6 +331,11 @@ export default function App() {
       } catch (err) {
         console.error("Error fetching game details:", err);
         setError("Failed to fetch game details. Please try again later.");
+        // Fallback to empty requirements so the UI doesn't show "No Data" incorrectly
+        setGameRequirements({
+          minimum: "Could not load requirements. Please check your internet connection.",
+          recommended: "Could not load requirements. Please check your internet connection."
+        });
       } finally {
         setIsGameDetailsLoading(false);
       }
