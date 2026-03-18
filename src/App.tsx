@@ -953,7 +953,8 @@ export default function App() {
         <p>{t.footer}</p>
       </footer>
     </div>
-  };
+  );
+}
 
 function RequirementItem({ icon, label, value, className = "" }: { icon: React.ReactNode, label: string, value: string, className?: string }) {
   return (
