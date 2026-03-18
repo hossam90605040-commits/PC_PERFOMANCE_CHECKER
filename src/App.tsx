@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Cpu, Monitor, Zap, CheckCircle2, XCircle, AlertCircle, BarChart3, Info, ChevronRight, Loader2, Database, Settings } from 'lucide-react';
+import { Search, Cpu, Monitor, Zap, CheckCircle2, XCircle, AlertCircle, BarChart3, Info, ChevronRight, Loader2, Database, Settings, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CPU_DATA, GPU_DATA, HardwareItem } from './data/hardware';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -8,6 +8,8 @@ interface Game {
   id: number;
   name: string;
   background_image: string;
+  released?: string;
+  rating?: number;
   platforms?: { requirements_en: { minimum: string; recommended: string } }[];
 }
 
@@ -160,8 +162,10 @@ export default function App() {
     const fetchInitialData = async () => {
       try {
         const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
-        const geminiKey = process.env.GEMINI_API_KEY;
+        const geminiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
         
+        console.log("Config check:", { hasRawg: !!rawgKey, hasGemini: !!geminiKey });
+
         setConfig({
           hasRawgKey: !!rawgKey,
           hasGeminiKey: !!geminiKey
@@ -169,8 +173,12 @@ export default function App() {
 
         if (rawgKey) {
           const res = await fetch(`https://api.rawg.io/api/games?key=${rawgKey}&page_size=4&ordering=-added`);
-          const data = await res.json();
-          setPopularGames(data.results || []);
+          if (res.ok) {
+            const data = await res.json();
+            setPopularGames(data.results || []);
+          } else {
+            console.error("Failed to fetch popular games:", res.status);
+          }
         }
 
         // Load history
@@ -198,24 +206,45 @@ export default function App() {
 
     const fetchGameDetails = async () => {
       setIsGameDetailsLoading(true);
+      setError(null);
       try {
         const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
+        if (!rawgKey) {
+          const msg = "RAWG API Key is missing. Please set VITE_RAWG_API_KEY in Netlify settings.";
+          console.error(msg);
+          setGameRequirements({
+            minimum: msg,
+            recommended: msg
+          });
+          setIsGameDetailsLoading(false);
+          return;
+        }
+
+        console.log(`Fetching details for game ID: ${selectedGame.id}`);
         const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=${rawgKey}`);
-        const data = await res.json();
-        const rawReqs = data.platforms?.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
-          minimum: "No specific requirements found.",
-          recommended: "No specific requirements found."
-        };
+        if (!res.ok) {
+          throw new Error(`RAWG API Error: ${res.status} ${res.statusText}`);
+        }
         
+        const data = await res.json();
+        console.log("RAWG Data received:", data.name);
+        
+        const pcPlatform = data.platforms?.find((p: any) => p.platform.slug === 'pc');
+        const rawReqs = pcPlatform?.requirements_en || {};
+        
+        const minReq = rawReqs.minimum || "No specific minimum requirements found in RAWG database.";
+        const recReq = rawReqs.recommended || "No specific recommended requirements found in RAWG database.";
+
         // Set initial requirements immediately for speed
         setGameRequirements({
-          minimum: rawReqs.minimum.replace(/Minimum:|Minimum/gi, '').trim(),
-          recommended: rawReqs.recommended.replace(/Recommended:|Recommended/gi, '').trim()
+          minimum: minReq.replace(/Minimum:|Minimum/gi, '').trim(),
+          recommended: recReq.replace(/Recommended:|Recommended/gi, '').trim()
         });
 
         // Use Gemini to get specific qualities/resolutions AND structured requirements for this game
-        const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
         if (apiKey) {
+          console.log("Attempting to structure requirements with Gemini...");
           const ai = new GoogleGenAI({ apiKey });
           const prompt = `
             For the game "${selectedGame.name}", provide:
@@ -223,8 +252,8 @@ export default function App() {
             2. Common resolutions (e.g. 1080p, 1440p, 4K).
             3. Parse or SEARCH for the PC requirements (CPU, GPU, RAM, Storage, OS).
                If the following requirements are placeholder or missing, use Google Search to find the real ones:
-               Minimum: ${rawReqs.minimum}
-               Recommended: ${rawReqs.recommended}
+               Minimum: ${minReq}
+               Recommended: ${recReq}
             
             Return the result as a JSON object with:
             "qualities": string[],
@@ -234,58 +263,66 @@ export default function App() {
             "rawMin": string (a summary string of minimum requirements),
             "rawRec": string (a summary string of recommended requirements)
           `;
-          const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: prompt,
-            config: {
-              tools: [{ googleSearch: {} }],
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  qualities: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  resolutions: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  minStructured: {
-                    type: Type.OBJECT,
-                    properties: {
-                      cpu: { type: Type.STRING },
-                      gpu: { type: Type.STRING },
-                      ram: { type: Type.STRING },
-                      storage: { type: Type.STRING },
-                      os: { type: Type.STRING }
-                    }
+          try {
+            const response = await ai.models.generateContent({
+              model: "gemini-3-flash-preview",
+              contents: prompt,
+              config: {
+                tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    qualities: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    resolutions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    minStructured: {
+                      type: Type.OBJECT,
+                      properties: {
+                        cpu: { type: Type.STRING },
+                        gpu: { type: Type.STRING },
+                        ram: { type: Type.STRING },
+                        storage: { type: Type.STRING },
+                        os: { type: Type.STRING }
+                      }
+                    },
+                    recStructured: {
+                      type: Type.OBJECT,
+                      properties: {
+                        cpu: { type: Type.STRING },
+                        gpu: { type: Type.STRING },
+                        ram: { type: Type.STRING },
+                        storage: { type: Type.STRING },
+                        os: { type: Type.STRING }
+                      }
+                    },
+                    rawMin: { type: Type.STRING },
+                    rawRec: { type: Type.STRING }
                   },
-                  recStructured: {
-                    type: Type.OBJECT,
-                    properties: {
-                      cpu: { type: Type.STRING },
-                      gpu: { type: Type.STRING },
-                      ram: { type: Type.STRING },
-                      storage: { type: Type.STRING },
-                      os: { type: Type.STRING }
-                    }
-                  },
-                  rawMin: { type: Type.STRING },
-                  rawRec: { type: Type.STRING }
-                },
-                required: ["qualities", "resolutions", "minStructured", "recStructured", "rawMin", "rawRec"]
+                  required: ["qualities", "resolutions", "minStructured", "recStructured", "rawMin", "rawRec"]
+                }
               }
-            }
-          });
-          const settings = JSON.parse(response.text);
-          if (settings.qualities?.length > 0) setAvailableQualities(settings.qualities);
-          if (settings.resolutions?.length > 0) setAvailableResolutions(settings.resolutions);
-          
-          setGameRequirements({
-            minimum: settings.rawMin,
-            recommended: settings.rawRec,
-            minStructured: settings.minStructured,
-            recStructured: settings.recStructured
-          });
+            });
+            const settings = JSON.parse(response.text);
+            console.log("Gemini structuring complete.");
+            if (settings.qualities?.length > 0) setAvailableQualities(settings.qualities);
+            if (settings.resolutions?.length > 0) setAvailableResolutions(settings.resolutions);
+            
+            setGameRequirements({
+              minimum: settings.rawMin,
+              recommended: settings.rawRec,
+              minStructured: settings.minStructured,
+              recStructured: settings.recStructured
+            });
+          } catch (geminiErr) {
+            console.error("Gemini structuring failed:", geminiErr);
+            // We still have the raw requirements from RAWG, so we don't need to do anything else
+          }
+        } else {
+          console.warn("Gemini API Key missing, skipping structured requirements.");
         }
-        setIsGameDetailsLoading(false);
       } catch (err) {
         console.error("Error fetching game details:", err);
+        setError("Failed to fetch game details. Please try again later.");
       } finally {
         setIsGameDetailsLoading(false);
       }
@@ -301,9 +338,16 @@ export default function App() {
         setIsGameLoading(true);
         try {
           const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
+          if (!rawgKey) {
+            console.error("RAWG API Key is missing.");
+            setIsGameLoading(false);
+            return;
+          }
           const res = await fetch(`https://api.rawg.io/api/games?search=${encodeURIComponent(gameSearch)}&key=${rawgKey}&page_size=10`);
-          const data = await res.json();
-          setGameSuggestions(data.results || []);
+          if (res.ok) {
+            const data = await res.json();
+            setGameSuggestions(data.results || []);
+          }
         } catch (err) {
           console.error(err);
         } finally {
@@ -367,9 +411,11 @@ export default function App() {
 
       // Analysis Prompt
       const analysisPrompt = `
-        Analyze if a PC can run a game based on the requirements and user specs at ${targetResolution} ${targetQuality} settings.
+        VERIFY AND ANALYZE: Use Google Search to find the official PC requirements for "${selectedGame.name}" from official sources (Steam, Epic Games, Developer site).
         
-        Game Requirements:
+        Then, analyze if the user's PC can run it at ${targetResolution} ${targetQuality} settings.
+        
+        Current (potentially incomplete) Requirements:
         ${JSON.stringify(requirements)}
         
         User PC Specs:
@@ -380,6 +426,7 @@ export default function App() {
         Target Resolution: ${targetResolution}
         Target Settings: ${targetQuality}
         
+        IMPORTANT: Your analysis must be 100% accurate based on real-world benchmarks and official data.
         Classify the performance as one of: "Runs High", "Runs Medium", "Runs Low", "Will Not Run".
         Also estimate the FPS at ${targetResolution} resolution with ${targetQuality} settings.
         Provide a brief explanation for the result in ${lang === 'ar' ? 'Arabic' : 'English'}.
@@ -391,6 +438,7 @@ export default function App() {
         model: "gemini-3-flash-preview",
         contents: analysisPrompt,
         config: {
+          tools: [{ googleSearch: {} }],
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -523,12 +571,22 @@ export default function App() {
 
       <main className="max-w-6xl mx-auto px-4 pb-20 -mt-12 relative z-20">
         {config && !config.hasRawgKey && (
-          <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between text-amber-400">
+          <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between text-amber-400">
             <div className="flex items-center gap-3">
               <AlertCircle className="w-5 h-5" />
-              <p className="text-sm font-medium">RAWG API Key is missing. Please add it to your environment variables to enable game search.</p>
+              <p className="text-sm font-medium">RAWG API Key is missing. Please set <code>VITE_RAWG_API_KEY</code> in Netlify settings.</p>
             </div>
             <a href="https://rawg.io/apidocs" target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-widest hover:underline">Get Key</a>
+          </div>
+        )}
+
+        {config && !config.hasGeminiKey && (
+          <div className="mb-8 p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl flex items-center justify-between text-indigo-400">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5" />
+              <p className="text-sm font-medium">Gemini API Key is missing. Please set <code>VITE_GEMINI_API_KEY</code> in Netlify settings for full analysis.</p>
+            </div>
+            <a href="https://ai.google.dev/" target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-widest hover:underline">Get Key</a>
           </div>
         )}
 
@@ -578,10 +636,32 @@ export default function App() {
                               setGameSuggestions([]);
                               setGameSearch('');
                             }}
-                            className="w-full flex items-center gap-4 p-3 hover:bg-white/5 transition-colors text-left border-b border-white/5 last:border-0"
+                            className="w-full flex items-center gap-4 p-3 hover:bg-white/5 transition-colors text-left border-b border-white/5 last:border-0 group"
                           >
-                            <img src={game.background_image} className="w-16 h-10 object-cover rounded-lg" alt={game.name} referrerPolicy="no-referrer" />
-                            <span className="font-bold">{game.name}</span>
+                            <div className="relative w-16 h-10 flex-shrink-0 overflow-hidden rounded-lg">
+                              <img 
+                                src={game.background_image || 'https://picsum.photos/seed/game/200/120'} 
+                                className="w-full h-full object-cover transition-transform group-hover:scale-110" 
+                                alt={game.name} 
+                                referrerPolicy="no-referrer" 
+                              />
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-bold text-zinc-100 truncate">{game.name}</span>
+                              <div className="flex items-center gap-2">
+                                {game.released && (
+                                  <span className="text-xs text-zinc-500">
+                                    {new Date(game.released).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short' })}
+                                  </span>
+                                )}
+                                {game.rating > 0 && (
+                                  <span className="text-xs text-amber-500 flex items-center gap-1">
+                                    <Star className="w-3 h-3 fill-current" />
+                                    {game.rating.toFixed(1)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </button>
                         ))}
                       </motion.div>
