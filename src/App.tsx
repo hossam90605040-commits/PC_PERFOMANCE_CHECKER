@@ -313,8 +313,14 @@ export default function App() {
               minStructured: settings.minStructured,
               recStructured: settings.recStructured
             });
-          } catch (geminiErr) {
+          } catch (geminiErr: any) {
             console.error("Gemini structuring failed:", geminiErr);
+            const errStr = JSON.stringify(geminiErr);
+            const errMsg = geminiErr.message || "";
+            if (errStr.includes("429") || errStr.includes("quota") || errStr.includes("RESOURCE_EXHAUSTED") ||
+                errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("RESOURCE_EXHAUSTED")) {
+              console.warn("Gemini Quota Exceeded. Using raw requirements from RAWG.");
+            }
             // We still have the raw requirements from RAWG, so we don't need to do anything else
           }
         } else {
@@ -498,8 +504,23 @@ export default function App() {
       const suggestionsData = JSON.parse(suggestionsResponse.text);
       setSuggestedGames(suggestionsData);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Something went wrong during analysis.");
+      console.error("Analysis error:", err);
+      let userMessage = "Something went wrong during analysis. Please try again.";
+      const errStr = JSON.stringify(err);
+      const errMsg = err.message || "";
+      
+      if (errStr.includes("429") || errStr.includes("quota") || errStr.includes("RESOURCE_EXHAUSTED") ||
+          errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("RESOURCE_EXHAUSTED")) {
+        userMessage = lang === 'ar' 
+          ? "لقد تجاوزت الحد المسموح به لطلبات البحث (Quota). يرجى الانتظار قليلاً أو تجربة مفتاح API آخر."
+          : "You've exceeded the API quota. Please wait a moment or try a different API key.";
+      } else if (errStr.includes("API_KEY_INVALID") || errMsg.includes("API_KEY_INVALID")) {
+        userMessage = lang === 'ar'
+          ? "مفتاح API غير صالح. يرجى التأكد من إعدادات Netlify."
+          : "Invalid API Key. Please check your Netlify environment variables.";
+      }
+      
+      setError(userMessage);
     } finally {
       setIsAnalyzing(false);
     }
