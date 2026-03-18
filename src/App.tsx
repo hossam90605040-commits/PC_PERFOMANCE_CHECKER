@@ -159,13 +159,19 @@ export default function App() {
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const configRes = await fetch('/api/config');
-        const configData = await configRes.json();
-        setConfig(configData);
+        const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
+        const geminiKey = process.env.GEMINI_API_KEY;
+        
+        setConfig({
+          hasRawgKey: !!rawgKey,
+          hasGeminiKey: !!geminiKey
+        });
 
-        const res = await fetch('/api/games/search?q=popular');
-        const data = await res.json();
-        setPopularGames(data.slice(0, 4));
+        if (rawgKey) {
+          const res = await fetch(`https://api.rawg.io/api/games?key=${rawgKey}&page_size=4&ordering=-added`);
+          const data = await res.json();
+          setPopularGames(data.results || []);
+        }
 
         // Load history
         const savedHistory = localStorage.getItem('gamespec_history');
@@ -191,37 +197,113 @@ export default function App() {
     }
 
     const fetchGameDetails = async () => {
-  setIsGameDetailsLoading(true);
+      setIsGameDetailsLoading(true);
+      try {
+        const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
+        const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=${rawgKey}`);
+        const data = await res.json();
+        const rawReqs = data.platforms?.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
+          minimum: "No specific requirements found.",
+          recommended: "No specific requirements found."
+        };
+        
+        // Set initial requirements immediately for speed
+        setGameRequirements({
+          minimum: rawReqs.minimum.replace(/Minimum:|Minimum/gi, '').trim(),
+          recommended: rawReqs.recommended.replace(/Recommended:|Recommended/gi, '').trim()
+        });
 
-  try {
-    const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=${import.meta.env.VITE_RAWG_API_KEY}`);
-    const data = await res.json();
-
-    const rawReqs = data.platforms?.find(p => p.platform.slug === "pc")?.requirements_en || {
-      minimum: "No requirements",
-      recommended: "No requirements"
+        // Use Gemini to get specific qualities/resolutions AND structured requirements for this game
+        const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+        if (apiKey) {
+          const ai = new GoogleGenAI({ apiKey });
+          const prompt = `
+            For the game "${selectedGame.name}", provide:
+            1. Standard graphics quality presets (e.g. Low, Medium, High, Ultra).
+            2. Common resolutions (e.g. 1080p, 1440p, 4K).
+            3. Parse or SEARCH for the PC requirements (CPU, GPU, RAM, Storage, OS).
+               If the following requirements are placeholder or missing, use Google Search to find the real ones:
+               Minimum: ${rawReqs.minimum}
+               Recommended: ${rawReqs.recommended}
+            
+            Return the result as a JSON object with:
+            "qualities": string[],
+            "resolutions": string[],
+            "minStructured": { "cpu": string, "gpu": string, "ram": string, "storage": string, "os": string },
+            "recStructured": { "cpu": string, "gpu": string, "ram": string, "storage": string, "os": string },
+            "rawMin": string (a summary string of minimum requirements),
+            "rawRec": string (a summary string of recommended requirements)
+          `;
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
+            config: {
+              tools: [{ googleSearch: {} }],
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  qualities: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  resolutions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  minStructured: {
+                    type: Type.OBJECT,
+                    properties: {
+                      cpu: { type: Type.STRING },
+                      gpu: { type: Type.STRING },
+                      ram: { type: Type.STRING },
+                      storage: { type: Type.STRING },
+                      os: { type: Type.STRING }
+                    }
+                  },
+                  recStructured: {
+                    type: Type.OBJECT,
+                    properties: {
+                      cpu: { type: Type.STRING },
+                      gpu: { type: Type.STRING },
+                      ram: { type: Type.STRING },
+                      storage: { type: Type.STRING },
+                      os: { type: Type.STRING }
+                    }
+                  },
+                  rawMin: { type: Type.STRING },
+                  rawRec: { type: Type.STRING }
+                },
+                required: ["qualities", "resolutions", "minStructured", "recStructured", "rawMin", "rawRec"]
+              }
+            }
+          });
+          const settings = JSON.parse(response.text);
+          if (settings.qualities?.length > 0) setAvailableQualities(settings.qualities);
+          if (settings.resolutions?.length > 0) setAvailableResolutions(settings.resolutions);
+          
+          setGameRequirements({
+            minimum: settings.rawMin,
+            recommended: settings.rawRec,
+            minStructured: settings.minStructured,
+            recStructured: settings.recStructured
+          });
+        }
+        setIsGameDetailsLoading(false);
+      } catch (err) {
+        console.error("Error fetching game details:", err);
+      } finally {
+        setIsGameDetailsLoading(false);
+      }
     };
 
-    setGameRequirements({
-      minimum: rawReqs.minimum,
-      recommended: rawReqs.recommended
-    });
+    fetchGameDetails();
+  }, [selectedGame]);
 
-  } catch (err) {
-    console.error(err);
-  } finally {
-    setIsGameDetailsLoading(false);
-  }
-};
   // Autocomplete for Games
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (gameSearch.length > 2 && !selectedGame) {
         setIsGameLoading(true);
         try {
-          const res = await fetch(`https://api.rawg.io/api/games?search=${encodeURIComponent(gameSearch)}&key=${import.meta.env.VITE_RAWG_API_KEY}`);
+          const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
+          const res = await fetch(`https://api.rawg.io/api/games?search=${encodeURIComponent(gameSearch)}&key=${rawgKey}&page_size=10`);
           const data = await res.json();
-          setGameSuggestions(data);
+          setGameSuggestions(data.results || []);
         } catch (err) {
           console.error(err);
         } finally {
@@ -274,7 +356,7 @@ export default function App() {
         recommended: "No specific requirements found."
       };
 
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
       if (!apiKey || apiKey.trim() === "" || apiKey === "MY_GEMINI_API_KEY") {
         // If the key is missing or still the placeholder, we'll try to proceed 
         // but the SDK will likely throw a better error if the platform hasn't injected it.
