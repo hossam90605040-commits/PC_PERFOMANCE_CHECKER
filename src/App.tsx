@@ -221,7 +221,7 @@ export default function App() {
       if (gameSearch.length > 2 && !selectedGame) {
         setIsGameLoading(true);
         try {
-          const res = await fetch(`/api/games/search?q=${encodeURIComponent(gameSearch)}`);
+          const res = await fetch(`https://api.rawg.io/api/games?search=${encodeURIComponent(gameSearch)}&key=${import.meta.env.VITE_RAWG_API_KEY}`);
           const data = await res.json();
           setGameSuggestions(data);
         } catch (err) {
