@@ -193,7 +193,7 @@ export default function App() {
     const fetchGameDetails = async () => {
       setIsGameDetailsLoading(true);
       try {
-        const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=454dc988e8f541819e5c1973f82380b6`);
+        const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=${import.meta.env.VITE_RAWG_API_KEY}`);
         const data = await res.json();
         const rawReqs = data.platforms?.find((p: any) => p.platform.slug === 'pc')?.requirements_en || {
           minimum: "No specific requirements found.",
@@ -207,27 +207,6 @@ export default function App() {
         });
 
         // Use Gemini to get specific qualities/resolutions AND structured requirements for this game
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (apiKey) {
-          const ai = new GoogleGenAI({ apiKey });
-          const prompt = `
-            For the game "${selectedGame.name}", provide:
-            1. Standard graphics quality presets (e.g. Low, Medium, High, Ultra).
-            2. Common resolutions (e.g. 1080p, 1440p, 4K).
-            3. Parse or SEARCH for the PC requirements (CPU, GPU, RAM, Storage, OS).
-               If the following requirements are placeholder or missing, use Google Search to find the real ones:
-               Minimum: ${rawReqs.minimum}
-               Recommended: ${rawReqs.recommended}
-            
-            Return the result as a JSON object with:
-            "qualities": string[],
-            "resolutions": string[],
-            "minStructured": { "cpu": string, "gpu": string, "ram": string, "storage": string, "os": string },
-            "recStructured": { "cpu": string, "gpu": string, "ram": string, "storage": string, "os": string },
-            "rawMin": string (a summary string of minimum requirements),
-            "rawRec": string (a summary string of recommended requirements)
-          `;
-          const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: prompt,
             config: {
