@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Cpu, Monitor, Zap, CheckCircle2, XCircle, AlertCircle, BarChart3, Info, ChevronRight, Loader2, Database, Settings, Star } from 'lucide-react';
+import { Search, Cpu, Monitor, Zap, CheckCircle2, XCircle, AlertCircle, BarChart3, Info, ChevronRight, Loader2, Database, Settings, Star, Save, Download, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CPU_DATA, GPU_DATA, HardwareItem } from './data/hardware';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -75,7 +75,14 @@ const translations = {
     historyTitle: "Previous Analyses",
     historyEmpty: "No previous analyses yet.",
     viewResult: "View Result",
-    fetchError: "Network error or API blocked. Please check your connection or ad-blocker."
+    fetchError: "Network error or API blocked. Please check your connection or ad-blocker.",
+    saveSpecs: "Save Specs",
+    loadSpecs: "Load Specs",
+    specsSaved: "Specifications saved successfully!",
+    specsLoaded: "Specifications loaded successfully!",
+    noSavedSpecs: "No saved specifications found.",
+    exportSpecs: "Download Specs",
+    specsExported: "Specifications downloaded successfully!",
   },
   ar: {
     heroTitle: "اعرف قوة جهازك",
@@ -117,7 +124,14 @@ const translations = {
     historyTitle: "التحليلات السابقة",
     historyEmpty: "لا توجد تحليلات سابقة بعد.",
     viewResult: "عرض النتيجة",
-    fetchError: "خطأ في الاتصال أو تم حظر الطلب. يرجى التحقق من اتصالك أو مانع الإعلانات."
+    fetchError: "خطأ في الاتصال أو تم حظر الطلب. يرجى التحقق من اتصالك أو مانع الإعلانات.",
+    saveSpecs: "حفظ المواصفات",
+    loadSpecs: "تحميل المواصفات",
+    specsSaved: "تم حفظ المواصفات بنجاح!",
+    specsLoaded: "تم تحميل المواصفات بنجاح!",
+    noSavedSpecs: "لم يتم العثور على مواصفات محفوظة.",
+    exportSpecs: "تحميل المواصفات",
+    specsExported: "تم تحميل المواصفات بنجاح!",
   }
 };
 
@@ -158,6 +172,7 @@ export default function App() {
   const [popularGames, setPopularGames] = useState<Game[]>([]);
   const [config, setConfig] = useState<{ hasRawgKey: boolean; hasGeminiKey: boolean } | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const gameSearchRef = useRef<HTMLDivElement>(null);
   const cpuSearchRef = useRef<HTMLDivElement>(null);
@@ -210,6 +225,13 @@ export default function App() {
     };
     fetchInitialData();
   }, []);
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   useEffect(() => {
     localStorage.setItem('gamespec_history', JSON.stringify(history));
@@ -567,8 +589,100 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const saveSpecs = () => {
+    if (!selectedCpu || !selectedGpu) {
+      setToast({ message: t.errorSpecs, type: 'error' });
+      return;
+    }
+    const specs = {
+      game: selectedGame,
+      cpu: selectedCpu,
+      gpu: selectedGpu,
+      ram: ram,
+      quality: targetQuality,
+      resolution: targetResolution
+    };
+    localStorage.setItem('pc_specs_profile', JSON.stringify(specs));
+    setToast({ message: t.specsSaved, type: 'success' });
+  };
+
+  const loadSpecs = () => {
+    const saved = localStorage.getItem('pc_specs_profile');
+    if (saved) {
+      const specs = JSON.parse(saved);
+      setSelectedGame(specs.game);
+      setSelectedCpu(specs.cpu);
+      setSelectedGpu(specs.gpu);
+      setRam(specs.ram);
+      setTargetQuality(specs.quality);
+      setTargetResolution(specs.resolution);
+      setToast({ message: t.specsLoaded, type: 'success' });
+    } else {
+      setToast({ message: t.noSavedSpecs, type: 'error' });
+    }
+  };
+
+  const exportSpecs = () => {
+    if (!selectedCpu || !selectedGpu) {
+      setToast({ message: t.errorSpecs, type: 'error' });
+      return;
+    }
+
+    const content = `
+PC Performance Checker Report
+-----------------------------
+Game: ${selectedGame?.name || 'Not Selected'}
+CPU: ${selectedCpu.name}
+GPU: ${selectedGpu.name}
+RAM: ${ram}GB
+Target Quality: ${targetQuality}
+Target Resolution: ${targetResolution}
+
+${result ? `
+Analysis Result:
+----------------
+Status: ${result.status}
+Estimated FPS: ${result.estimatedFps}
+Explanation: ${result.explanation}
+` : ''}
+
+Generated on: ${new Date().toLocaleString()}
+    `.trim();
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `PC_Specs_${selectedGame?.name?.replace(/\s+/g, '_') || 'Profile'}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    setToast({ message: t.specsExported, type: 'success' });
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-zinc-100 font-sans selection:bg-indigo-500/30" dir={t.dir}>
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 50, x: '-50%' }}
+            className={`fixed bottom-8 left-1/2 z-[100] px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-md flex items-center gap-3 ${
+              toast.type === 'success' 
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+            }`}
+          >
+            {toast.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            <span className="font-bold text-sm">{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Language Switcher */}
       <div className={`fixed top-6 ${lang === 'ar' ? 'left-6' : 'right-6'} z-50`}>
         <button 
@@ -636,10 +750,44 @@ export default function App() {
           {/* Input Panel */}
           <div className="lg:col-span-7 space-y-6">
             <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/5 rounded-3xl p-8 shadow-2xl">
-              <h2 className="text-xl font-bold mb-8 flex items-center gap-2">
-                <Zap className="w-5 h-5 text-indigo-500" />
-                {t.configTitle}
-              </h2>
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-indigo-500" />
+                  {t.configTitle}
+                </h2>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={loadSpecs}
+                    className="p-2 rounded-xl bg-zinc-800 border border-white/5 text-zinc-400 hover:text-indigo-400 hover:bg-zinc-700 transition-all group relative"
+                    title={t.loadSpecs}
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className={`absolute bottom-full mb-2 ${lang === 'ar' ? 'right-0' : 'left-0'} bg-zinc-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-white/10 pointer-events-none`}>
+                      {t.loadSpecs}
+                    </span>
+                  </button>
+                  <button 
+                    onClick={saveSpecs}
+                    className="p-2 rounded-xl bg-zinc-800 border border-white/5 text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700 transition-all group relative"
+                    title={t.saveSpecs}
+                  >
+                    <Save className="w-4 h-4" />
+                    <span className={`absolute bottom-full mb-2 ${lang === 'ar' ? 'right-0' : 'left-0'} bg-zinc-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-white/10 pointer-events-none`}>
+                      {t.saveSpecs}
+                    </span>
+                  </button>
+                  <button 
+                    onClick={exportSpecs}
+                    className="p-2 rounded-xl bg-zinc-800 border border-white/5 text-zinc-400 hover:text-amber-400 hover:bg-zinc-700 transition-all group relative"
+                    title={t.exportSpecs}
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span className={`absolute bottom-full mb-2 ${lang === 'ar' ? 'right-0' : 'left-0'} bg-zinc-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-white/10 pointer-events-none`}>
+                      {t.exportSpecs}
+                    </span>
+                  </button>
+                </div>
+              </div>
 
               <div className="space-y-8">
                 {/* Game Search */}
