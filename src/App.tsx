@@ -173,6 +173,9 @@ export default function App() {
   const [config, setConfig] = useState<{ hasRawgKey: boolean; hasGeminiKey: boolean } | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isBackendMissing, setIsBackendMissing] = useState(false);
+
+  const RAWG_KEY = import.meta.env.VITE_RAWG_API_KEY || '';
 
   const gameSearchRef = useRef<HTMLDivElement>(null);
   const cpuSearchRef = useRef<HTMLDivElement>(null);
@@ -227,12 +230,20 @@ export default function App() {
         if (res.ok) {
           const data = await res.json();
           setConfig(data);
+          setIsBackendMissing(false);
+        } else {
+          setIsBackendMissing(true);
         }
 
         const popularRes = await fetch('/api/games/popular');
         if (popularRes.ok) {
           const data = await popularRes.json();
           setPopularGames(data || []);
+        } else if (RAWG_KEY) {
+          // Fallback to direct RAWG call if backend fails but key is provided in frontend
+          const directRes = await fetch(`https://api.rawg.io/api/games?key=${RAWG_KEY}&page_size=4&ordering=-added`);
+          const directData = await directRes.json();
+          setPopularGames(directData.results || []);
         }
 
         // Load history
@@ -273,13 +284,17 @@ export default function App() {
       setError(null);
       try {
         console.log(`Fetching details for game ID: ${selectedGame.id}`);
+        let data;
         const res = await fetch(`/api/games/${selectedGame.id}`);
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || `Server Error: ${res.status}`);
+        if (res.ok) {
+          data = await res.json();
+        } else if (RAWG_KEY) {
+          const directRes = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=${RAWG_KEY}`);
+          data = await directRes.json();
+        } else {
+          throw new Error("Backend unreachable and no VITE_RAWG_API_KEY provided.");
         }
         
-        const data = await res.json();
         console.log("RAWG Data received:", data.name);
         
         const pcPlatform = data.platforms?.find((p: any) => p.platform.slug === 'pc');
@@ -417,9 +432,12 @@ export default function App() {
           if (res.ok) {
             const data = await res.json();
             setGameSuggestions(data || []);
+          } else if (RAWG_KEY) {
+            const directRes = await fetch(`https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(gameSearch)}&page_size=10`);
+            const directData = await directRes.json();
+            setGameSuggestions(directData.results || []);
           } else {
-            const errData = await res.json();
-            console.error("Search error:", errData.error);
+            setGameSuggestions([]);
           }
         } catch (err: any) {
           console.error("Search error:", err);
@@ -722,6 +740,18 @@ Generated on: ${new Date().toLocaleString()}
           {t.langBtn}
         </button>
       </div>
+
+      {/* Backend Missing Warning */}
+      {isBackendMissing && !RAWG_KEY && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 py-2 px-4 text-center">
+          <p className="text-amber-500 text-xs flex items-center justify-center gap-2">
+            <AlertCircle className="w-3 h-3" />
+            {lang === 'ar' 
+              ? 'تنبيه: الخادم الخلفي غير متاح. يرجى إضافة VITE_RAWG_API_KEY في إعدادات Netlify لتفعيل البحث.' 
+              : 'Warning: Backend unreachable. Please add VITE_RAWG_API_KEY to Netlify settings to enable search.'}
+          </p>
+        </div>
+      )}
 
       {/* Hero Section */}
       <div className="relative h-[40vh] overflow-hidden flex items-center justify-center">
