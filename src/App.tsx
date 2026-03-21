@@ -178,6 +178,30 @@ export default function App() {
   const cpuSearchRef = useRef<HTMLDivElement>(null);
   const gpuSearchRef = useRef<HTMLDivElement>(null);
 
+  // Helper to parse raw requirements string from RAWG
+  const parseRequirementsString = (reqStr: string) => {
+    if (!reqStr || reqStr.includes("No specific")) return null;
+
+    const clean = (s: string) => s?.replace(/Minimum:|Recommended:|Minimum|Recommended/gi, '').trim();
+    
+    const extract = (regex: RegExp) => {
+      const match = reqStr.match(regex);
+      if (!match) return 'N/A';
+      let val = clean(match[1]);
+      // Remove common trailing labels if they got caught
+      val = val.replace(/,\s*$/, '').trim();
+      return val || 'N/A';
+    };
+
+    return {
+      os: extract(/(?:OS|Operating System):\s*(.*?)(?=Processor|CPU|Memory|RAM|Graphics|GPU|DirectX|Storage|Hard Drive|Sound Card|$)/i),
+      cpu: extract(/(?:Processor|CPU):\s*(.*?)(?=Memory|RAM|Graphics|GPU|DirectX|Storage|Hard Drive|Sound Card|$)/i),
+      ram: extract(/(?:Memory|RAM):\s*(.*?)(?=Graphics|GPU|DirectX|Storage|Hard Drive|Sound Card|$)/i),
+      gpu: extract(/(?:Graphics|GPU|Video Card):\s*(.*?)(?=DirectX|Storage|Hard Drive|Sound Card|$)/i),
+      storage: extract(/(?:Storage|Hard Drive|Disk Space):\s*(.*?)(?=Sound Card|DirectX|OS|Processor|Memory|Graphics|$)/i)
+    };
+  };
+
   // Click outside to close suggestions
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -264,10 +288,16 @@ export default function App() {
         const minReq = rawReqs.minimum || "No specific minimum requirements found in RAWG database.";
         const recReq = rawReqs.recommended || "No specific recommended requirements found in RAWG database.";
 
+        // Client-side parsing fallback
+        const parsedMin = parseRequirementsString(minReq);
+        const parsedRec = parseRequirementsString(recReq);
+
         // Set initial requirements immediately for speed
         const initialReqs = {
           minimum: minReq.replace(/Minimum:|Minimum/gi, '').trim(),
-          recommended: recReq.replace(/Recommended:|Recommended/gi, '').trim()
+          recommended: recReq.replace(/Recommended:|Recommended/gi, '').trim(),
+          minStructured: parsedMin || undefined,
+          recStructured: parsedRec || undefined
         };
         setGameRequirements(initialReqs);
 
