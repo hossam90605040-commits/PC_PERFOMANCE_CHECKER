@@ -29,6 +29,19 @@ async function startServer() {
   });
 
   // API Routes
+  app.get('/api/games/popular', async (req, res) => {
+    if (!RAWG_API_KEY) {
+      return res.status(500).json({ error: 'RAWG_API_KEY not configured' });
+    }
+    try {
+      const response = await fetch(`https://api.rawg.io/api/games?key=${RAWG_API_KEY}&page_size=4&ordering=-added`);
+      const data = await response.json();
+      res.json(data.results || []);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch popular games' });
+    }
+  });
+
   app.get('/api/games/search', async (req, res) => {
     const { q } = req.query;
     if (!RAWG_API_KEY) {

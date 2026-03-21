@@ -74,7 +74,8 @@ const translations = {
     gpuScore: "GPU Performance",
     historyTitle: "Previous Analyses",
     historyEmpty: "No previous analyses yet.",
-    viewResult: "View Result"
+    viewResult: "View Result",
+    fetchError: "Network error or API blocked. Please check your connection or ad-blocker."
   },
   ar: {
     heroTitle: "اعرف قوة جهازك",
@@ -115,7 +116,8 @@ const translations = {
     gpuScore: "أداء كرت الشاشة",
     historyTitle: "التحليلات السابقة",
     historyEmpty: "لا توجد تحليلات سابقة بعد.",
-    viewResult: "عرض النتيجة"
+    viewResult: "عرض النتيجة",
+    fetchError: "خطأ في الاتصال أو تم حظر الطلب. يرجى التحقق من اتصالك أو مانع الإعلانات."
   }
 };
 
@@ -157,28 +159,41 @@ export default function App() {
   const [config, setConfig] = useState<{ hasRawgKey: boolean; hasGeminiKey: boolean } | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
+  const gameSearchRef = useRef<HTMLDivElement>(null);
+  const cpuSearchRef = useRef<HTMLDivElement>(null);
+  const gpuSearchRef = useRef<HTMLDivElement>(null);
+
+  // Click outside to close suggestions
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (gameSearchRef.current && !gameSearchRef.current.contains(event.target as Node)) {
+        setGameSuggestions([]);
+      }
+      if (cpuSearchRef.current && !cpuSearchRef.current.contains(event.target as Node)) {
+        setCpuSuggestions([]);
+      }
+      if (gpuSearchRef.current && !gpuSearchRef.current.contains(event.target as Node)) {
+        setGpuSuggestions([]);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Fetch config and popular games on mount
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
-        const geminiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
-        
-        console.log("Config check:", { hasRawg: !!rawgKey, hasGemini: !!geminiKey });
+        const res = await fetch('/api/config');
+        if (res.ok) {
+          const data = await res.json();
+          setConfig(data);
+        }
 
-        setConfig({
-          hasRawgKey: !!rawgKey,
-          hasGeminiKey: !!geminiKey
-        });
-
-        if (rawgKey) {
-          const res = await fetch(`https://api.rawg.io/api/games?key=${rawgKey}&page_size=4&ordering=-added`);
-          if (res.ok) {
-            const data = await res.json();
-            setPopularGames(data.results || []);
-          } else {
-            console.error("Failed to fetch popular games:", res.status);
-          }
+        const popularRes = await fetch('/api/games/popular');
+        if (popularRes.ok) {
+          const data = await popularRes.json();
+          setPopularGames(data || []);
         }
 
         // Load history
@@ -186,8 +201,11 @@ export default function App() {
         if (savedHistory) {
           setHistory(JSON.parse(savedHistory));
         }
-      } catch (err) {
-        console.error(err);
+      } catch (err: any) {
+        console.error("Initial data fetch error:", err);
+        if (err.message === "Failed to fetch") {
+          setError(t.fetchError);
+        }
       }
     };
     fetchInitialData();
@@ -208,22 +226,11 @@ export default function App() {
       setIsGameDetailsLoading(true);
       setError(null);
       try {
-        const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
-        if (!rawgKey) {
-          const msg = "RAWG API Key is missing. Please set VITE_RAWG_API_KEY in Netlify settings.";
-          console.error(msg);
-          setGameRequirements({
-            minimum: msg,
-            recommended: msg
-          });
-          setIsGameDetailsLoading(false);
-          return;
-        }
-
         console.log(`Fetching details for game ID: ${selectedGame.id}`);
-        const res = await fetch(`https://api.rawg.io/api/games/${selectedGame.id}?key=${rawgKey}`);
+        const res = await fetch(`/api/games/${selectedGame.id}`);
         if (!res.ok) {
-          throw new Error(`RAWG API Error: ${res.status} ${res.statusText}`);
+          const errData = await res.json();
+          throw new Error(errData.error || `Server Error: ${res.status}`);
         }
         
         const data = await res.json();
@@ -328,9 +335,13 @@ export default function App() {
         } else {
           console.warn("Gemini API Key missing, skipping structured requirements.");
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error fetching game details:", err);
-        setError("Failed to fetch game details. Please try again later.");
+        if (err.message === "Failed to fetch") {
+          setError(t.fetchError);
+        } else {
+          setError("Failed to fetch game details. Please try again later.");
+        }
         // Fallback to empty requirements so the UI doesn't show "No Data" incorrectly
         setGameRequirements({
           minimum: "Could not load requirements. Please check your internet connection.",
@@ -347,22 +358,22 @@ export default function App() {
   // Autocomplete for Games
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (gameSearch.length > 2 && !selectedGame) {
+      if (gameSearch.length > 1 && !selectedGame) {
         setIsGameLoading(true);
         try {
-          const rawgKey = import.meta.env.VITE_RAWG_API_KEY;
-          if (!rawgKey) {
-            console.error("RAWG API Key is missing.");
-            setIsGameLoading(false);
-            return;
-          }
-          const res = await fetch(`https://api.rawg.io/api/games?search=${encodeURIComponent(gameSearch)}&key=${rawgKey}&page_size=10`);
+          const res = await fetch(`/api/games/search?q=${encodeURIComponent(gameSearch)}`);
           if (res.ok) {
             const data = await res.json();
-            setGameSuggestions(data.results || []);
+            setGameSuggestions(data || []);
+          } else {
+            const errData = await res.json();
+            console.error("Search error:", errData.error);
           }
-        } catch (err) {
-          console.error(err);
+        } catch (err: any) {
+          console.error("Search error:", err);
+          if (err.message === "Failed to fetch") {
+            setError(t.fetchError);
+          }
         } finally {
           setIsGameLoading(false);
         }
@@ -525,6 +536,8 @@ export default function App() {
         userMessage = lang === 'ar'
           ? "مفتاح API غير صالح. يرجى التأكد من إعدادات Netlify."
           : "Invalid API Key. Please check your Netlify environment variables.";
+      } else if (errMsg === "Failed to fetch") {
+        userMessage = t.fetchError;
       }
       
       setError(userMessage);
@@ -630,7 +643,7 @@ export default function App() {
 
               <div className="space-y-8">
                 {/* Game Search */}
-                <div className="relative">
+                <div className="relative" ref={gameSearchRef}>
                   <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 ml-1">{t.selectGame}</label>
                   <div className="relative group">
                     <Search className={`absolute ${lang === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500 group-focus-within:text-indigo-500 transition-colors`} />
@@ -649,7 +662,7 @@ export default function App() {
                   </div>
                   
                   <AnimatePresence>
-                    {gameSuggestions.length > 0 && (
+                    {gameSuggestions.length > 0 ? (
                       <motion.div 
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -693,13 +706,22 @@ export default function App() {
                           </button>
                         ))}
                       </motion.div>
+                    ) : gameSearch.length > 1 && !isGameLoading && !selectedGame && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="absolute z-50 left-0 right-0 mt-2 bg-zinc-800 border border-white/10 rounded-2xl p-4 text-center text-zinc-500 text-sm shadow-2xl"
+                      >
+                        {lang === 'ar' ? 'لا توجد نتائج' : 'No results found'}
+                      </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* CPU Search */}
-                  <div className="relative">
+                  <div className="relative" ref={cpuSearchRef}>
                     <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 ml-1">{t.processor}</label>
                     <div className="relative group">
                       <Cpu className={`absolute ${lang === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500 group-focus-within:text-indigo-500 transition-colors`} />
@@ -741,7 +763,7 @@ export default function App() {
                   </div>
 
                   {/* GPU Search */}
-                  <div className="relative">
+                  <div className="relative" ref={gpuSearchRef}>
                     <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 ml-1">{t.graphics}</label>
                     <div className="relative group">
                       <Monitor className={`absolute ${lang === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500 group-focus-within:text-indigo-500 transition-colors`} />
